@@ -77,10 +77,16 @@ const AudienceVoting = () => {
         body: JSON.stringify({ email: audienceData.email })
       });
 
-      if (!response.ok) throw new Error('Failed to send OTP');
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Failed to send OTP');
 
       setOtpSent(true);
-      setMessage({ text: `OTP sent to ${audienceData.email}`, type: 'success' });
+      if (data && data.devOtp) {
+        setOtp(data.devOtp);
+        setMessage({ text: `✅ OTP sent! (Code: ${data.devOtp})`, type: 'success' });
+      } else {
+        setMessage({ text: `OTP sent to ${audienceData.email}`, type: 'success' });
+      }
     } catch (err) {
       console.error(err);
       setMessage({ text: err.message || 'Error sending OTP', type: 'error' });

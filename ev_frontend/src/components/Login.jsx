@@ -38,9 +38,14 @@ const Login = () => {
       }
 
       // Send OTP via backend
-      await sendOtp(email);
+      const res = await sendOtp(email);
       setOtpSent(true);
-      setMessage(`✅ OTP sent to ${email}`);
+      if (res && res.devOtp) {
+        setOtpInput(res.devOtp);
+        setMessage(`✅ OTP sent! (Code: ${res.devOtp})`);
+      } else {
+        setMessage(`✅ OTP sent to ${email}`);
+      }
       setMessageType("success");
     } catch (err) {
       setMessage(err.message);

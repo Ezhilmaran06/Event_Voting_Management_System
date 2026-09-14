@@ -47,9 +47,14 @@ const SignUp = () => {
         return;
       }
 
-      await sendOtp(form.email);
+      const res = await sendOtp(form.email);
       setOtpSent(true);
-      setGeneralMessage({ text: `✅ OTP sent to ${form.email}`, type: "success" });
+      if (res && res.devOtp) {
+        setForm(prev => ({ ...prev, otp: res.devOtp }));
+        setGeneralMessage({ text: `✅ OTP sent! (Code: ${res.devOtp})`, type: "success" });
+      } else {
+        setGeneralMessage({ text: `✅ OTP sent to ${form.email}`, type: "success" });
+      }
     } catch (err) {
       setGeneralMessage({ text: err.message || "Failed to send OTP.", type: "error" });
     } finally {
