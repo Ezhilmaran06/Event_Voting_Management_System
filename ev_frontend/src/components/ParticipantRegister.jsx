@@ -3,10 +3,10 @@ import { useNavigate, Link } from "react-router-dom";
 import { useEvent } from "../context/EventContext";
 import { ArrowLeft, Upload, X, Camera } from "lucide-react";
 
-const ParticipantRegister: React.FC = () => {
+const ParticipantRegister = () => {
   const navigate = useNavigate();
-  const { events = [], registerParticipant } = useEvent() as any;
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const { events = [], registerParticipant } = useEvent();
+  const fileInputRef = useRef(null);
 
   const [formData, setFormData] = useState({
     eventId: sessionStorage.getItem("selectedEventId") || "",
@@ -15,8 +15,8 @@ const ParticipantRegister: React.FC = () => {
     institution: "",
     performanceCategory: "",
     teamDetails: "",
-    teamPicture: null as File | null,
-    teamPicturePreview: null as string | null,
+    teamPicture: null,
+    teamPicturePreview: null,
   });
 
   const [message, setMessage] = useState("");
@@ -32,16 +32,12 @@ const ParticipantRegister: React.FC = () => {
     "Cultural Showcase",
   ];
 
-  const handleInputChange = (
-    e: React.ChangeEvent<
-      HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement
-    >
-  ) => {
+  const handleInputChange = (e) => {
     const { name, value } = e.target;
     setFormData((prev) => ({ ...prev, [name]: value }));
   };
 
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileUpload = (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
     if (file.size > 5 * 1024 * 1024)
@@ -54,7 +50,7 @@ const ParticipantRegister: React.FC = () => {
       setFormData((prev) => ({
         ...prev,
         teamPicture: file,
-        teamPicturePreview: ev.target?.result as string,
+        teamPicturePreview: ev.target?.result,
       }));
     reader.readAsDataURL(file);
     setMessage("");
@@ -69,7 +65,7 @@ const ParticipantRegister: React.FC = () => {
     if (fileInputRef.current) fileInputRef.current.value = "";
   };
 
-  const validateForm = (): string | null => {
+  const validateForm = () => {
     if (!formData.eventId) return "Please select an event";
     if (!formData.teamName.trim()) return "Team name is required";
     if (!formData.teamLeaderName.trim())
@@ -82,7 +78,7 @@ const ParticipantRegister: React.FC = () => {
     return null;
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     const err = validateForm();
     if (err) return setMessage(err);
@@ -113,7 +109,7 @@ const ParticipantRegister: React.FC = () => {
 
   const selectedEvent = Array.isArray(events)
     ? events.find(
-        (ev: any) =>
+        (ev) =>
           ev.id?.toString() === formData.eventId?.toString()
       )
     : undefined;
@@ -173,7 +169,7 @@ const ParticipantRegister: React.FC = () => {
                   className="w-full px-4 py-3 border-2 border-gray-200 rounded-lg"
                 >
                   <option value="">Choose an event</option>
-                  {events.map((ev: any) => (
+                  {events.map((ev) => (
                     <option key={ev.id} value={ev.id}>
                       {ev.eventName} - {ev.eventType}
                     </option>

@@ -3,7 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { useEvent } from '../context/EventContext';
 import { Calendar, MapPin, Building, Users, Trophy, Plus, LogIn } from 'lucide-react';
 
-const Home: React.FC = () => {
+const Home = () => {
   const { events, addEvent, setEvents } = useEvent();
   const [showForm, setShowForm] = useState(false);
   const [message, setMessage] = useState('');
@@ -42,7 +42,7 @@ const Home: React.FC = () => {
         const data = await response.json();
 
         if (response.ok) {
-          const transformedEvents = data.map((event: any) => ({
+          const transformedEvents = data.map((event) => ({
             id: event.id,
             eventName: event.eventName,
             eventType: event.eventType,
@@ -69,12 +69,12 @@ const Home: React.FC = () => {
     fetchEvents();
   }, []);
 
-  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
+  const handleInputChange = (e) => {
     const { name, value } = e.target;
     setFormData(prev => ({ ...prev, [name]: value }));
   };
 
-  const validateForm = (): string | null => {
+  const validateForm = () => {
     if (!formData.eventName.trim()) return 'Event name is required';
     if (!formData.eventType) return 'Event type is required';
     if (!formData.startDateTime) return 'Start date and time is required';
@@ -93,7 +93,7 @@ const Home: React.FC = () => {
     return null;
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     const error = validateForm();
     if (error) {
@@ -157,7 +157,7 @@ const Home: React.FC = () => {
     }
   };
 
-  const formatDate = (dateString: string): string => {
+  const formatDate = (dateString) => {
     return new Date(dateString).toLocaleDateString('en-US', {
       year: 'numeric',
       month: 'short',

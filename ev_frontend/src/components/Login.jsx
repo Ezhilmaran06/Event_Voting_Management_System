@@ -4,16 +4,16 @@ import { Mail, KeyRound } from "lucide-react";
 import "./Login.css";
 import { fetchUsers, sendOtp, verifyOtp } from "../services/authservice";
 
-const isValidEmail = (email: string) => /\S+@\S+\.\S+/.test(email);
+const isValidEmail = (email) => /\S+@\S+\.\S+/.test(email);
 
-const Login: React.FC = () => {
+const Login = () => {
   const navigate = useNavigate();
   const [email, setEmail] = useState("");
   const [otpInput, setOtpInput] = useState("");
   const [otpSent, setOtpSent] = useState(false);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState(""); // for inline messages
-  const [messageType, setMessageType] = useState<"error" | "success">("error"); // for styling
+  const [messageType, setMessageType] = useState("error"); // for styling
 
   // Handle OTP request
   const handleGetOtp = async () => {
@@ -29,7 +29,7 @@ const Login: React.FC = () => {
 
       // Check if user exists
       const users = await fetchUsers();
-      const user = users.find((u: any) => u.email === email);
+      const user = users.find((u) => u.email === email);
 
       if (!user) {
         setMessage("Email not registered. Please sign up first.");
@@ -42,7 +42,7 @@ const Login: React.FC = () => {
       setOtpSent(true);
       setMessage(`✅ OTP sent to ${email}`);
       setMessageType("success");
-    } catch (err: any) {
+    } catch (err) {
       setMessage(err.message);
       setMessageType("error");
     } finally {
@@ -72,7 +72,7 @@ const Login: React.FC = () => {
 
       // Fetch user data for session
       const users = await fetchUsers();
-      const user = users.find((u: any) => u.email === email);
+      const user = users.find((u) => u.email === email);
 
       if (user) {
         const userData = {
@@ -96,7 +96,7 @@ const Login: React.FC = () => {
         setMessage("User not found. Please try again.");
         setMessageType("error");
       }
-    } catch (err: any) {
+    } catch (err) {
       setMessage(err.message);
       setMessageType("error");
     } finally {

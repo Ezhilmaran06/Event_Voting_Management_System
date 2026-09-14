@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 
-const EventContext = createContext();
+const EventContext = createContext(undefined);
 
 export const useEvent = () => {
   const context = useContext(EventContext);
@@ -55,8 +55,8 @@ export const EventProvider = ({ children }) => {
     return newEvent;
   };
 
-  const registerParticipant = (participantData) => {
-    // Try to persist to backend
+  const registerParticipant = async (participantData) => {
+    // Try to post to backend to persist in SQL
     try {
       const rawCurrentUser = localStorage.getItem('currentUser');
       const currentUser = rawCurrentUser ? JSON.parse(rawCurrentUser) : null;
@@ -70,19 +70,22 @@ export const EventProvider = ({ children }) => {
 
       const storedUserEventId = sessionStorage.getItem('userEventId');
       if (storedUserEventId) {
-        fetch(`http://localhost:3000/user_events/${storedUserEventId}`, {
+        // update existing record
+        await fetch(`http://localhost:3000/user_events/${storedUserEventId}`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ team_name: payload.team_name, team_picture: payload.team_picture })
-        }).catch(err => console.error('Failed to update participant', err));
+        });
       } else {
-        fetch('http://localhost:3000/user_events', {
+        // create new registration row
+        await fetch('http://localhost:3000/user_events', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload)
-        }).catch(err => console.error('Failed to persist participant', err));
+        });
       }
 
+      // Keep local state in sync (optimistic)
       const newParticipant = {
         ...participantData,
         id: Date.now().toString(),
@@ -91,7 +94,7 @@ export const EventProvider = ({ children }) => {
       setParticipants(prev => [...prev, newParticipant]);
       return newParticipant;
     } catch (err) {
-      console.error(err);
+      console.error('Failed to register participant to backend', err);
       throw err;
     }
   };
@@ -140,6 +143,7 @@ export const EventProvider = ({ children }) => {
 
   const value = {
     events,
+    setEvents,
     participants,
     votes,
     addEvent,
@@ -150,23 +154,9 @@ export const EventProvider = ({ children }) => {
     getResults,
     isEventOngoing
   };
-  // include setEvents in provider value
-  const providerValue = {
-    events,
-    participants,
-    votes,
-    addEvent,
-    registerParticipant,
-    castVote,
-    getParticipantsByEvent,
-    getVotesByEvent,
-    getResults,
-    isEventOngoing,
-    setEvents
-  };
 
   return (
-    <EventContext.Provider value={providerValue}>
+    <EventContext.Provider value={value}>
       {children}
     </EventContext.Provider>
   );

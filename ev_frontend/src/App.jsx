@@ -1,8 +1,8 @@
 import React from 'react';
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import { EventProvider } from './context/EventContext';
-import Login from './components/Login';        // ✅ Changed from Home to Login
-import Home from './components/Home';          // ✅ Added Home page import
+import Login from './components/Login';
+import Home from './components/Home';
 import RegisterLogin from './components/RegisterLogin';
 import ParticipantRegister from './components/ParticipantRegister';
 import AudienceVoting from './components/AudienceVoting';
@@ -17,12 +17,12 @@ function App() {
       <Router>
         <div className="app">
           <Routes>
-            {/* ✅ Default route shows Login page */}
+            {/* Default route shows Login page */}
             <Route path="/" element={<Login />} />
             <Route path="/signup" element={<SignUp />} />
-            <Route path="/results" element={<Results />} /> {/* ✅ Must be added */}
+            <Route path="/results" element={<Results />} />
 
-            {/* ✅ After login redirect to Home */}
+            {/* After login redirect to Home */}
             <Route path="/home" element={<Home />} />
 
             {/* Other routes remain same */}

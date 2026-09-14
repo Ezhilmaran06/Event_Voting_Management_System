@@ -1,23 +1,14 @@
-import React, { useState, ChangeEvent, FormEvent } from "react";
+import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { GraduationCap } from "lucide-react";
 import "./signup.css";
 import { fetchUsers, sendOtp, verifyOtp, createUser } from "../services/authservice";
 
-interface FormData {
-  username: string;
-  collegeName: string;
-  role: string;
-  mobileNumber: string;
-  email: string;
-  otp: string;
-}
+const isValidEmail = (email) => /\S+@\S+\.\S+/.test(email);
 
-const isValidEmail = (email: string) => /\S+@\S+\.\S+/.test(email);
-
-const SignUp: React.FC = () => {
+const SignUp = () => {
   const navigate = useNavigate();
-  const [form, setForm] = useState<FormData>({
+  const [form, setForm] = useState({
     username: "",
     collegeName: "",
     role: "",
@@ -28,10 +19,10 @@ const SignUp: React.FC = () => {
   const [otpSent, setOtpSent] = useState(false);
   const [otpVerified, setOtpVerified] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [messages, setMessages] = useState<{ [key: string]: string }>({}); // field-specific messages
-  const [generalMessage, setGeneralMessage] = useState<{ text: string; type: "error" | "success" } | null>(null);
+  const [messages, setMessages] = useState({}); // field-specific messages
+  const [generalMessage, setGeneralMessage] = useState(null);
 
-  const handleChange = (e: ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
+  const handleChange = (e) => {
     setForm({ ...form, [e.target.name]: e.target.value });
     setMessages({ ...messages, [e.target.name]: "" }); // clear message on change
     setGeneralMessage(null);
@@ -50,7 +41,7 @@ const SignUp: React.FC = () => {
     try {
       setLoading(true);
       const users = await fetchUsers();
-      const existingUser = users.find((u: any) => u.email === form.email);
+      const existingUser = users.find((u) => u.email === form.email);
       if (existingUser) {
         setMessages({ ...messages, email: "Email already registered. Please login." });
         return;
@@ -59,7 +50,7 @@ const SignUp: React.FC = () => {
       await sendOtp(form.email);
       setOtpSent(true);
       setGeneralMessage({ text: `✅ OTP sent to ${form.email}`, type: "success" });
-    } catch (err: any) {
+    } catch (err) {
       setGeneralMessage({ text: err.message || "Failed to send OTP.", type: "error" });
     } finally {
       setLoading(false);
@@ -85,7 +76,7 @@ const SignUp: React.FC = () => {
       await verifyOtp(form.email, form.otp);
       setOtpVerified(true);
       setGeneralMessage({ text: "✅ OTP verified successfully!", type: "success" });
-    } catch (err: any) {
+    } catch (err) {
       setGeneralMessage({ text: err.message || "OTP verification failed.", type: "error" });
     } finally {
       setLoading(false);
@@ -93,13 +84,13 @@ const SignUp: React.FC = () => {
   };
 
   // Step 3: Submit registration
-  const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     setMessages({});
     setGeneralMessage(null);
 
     // Basic validation
-    const newMessages: { [key: string]: string } = {};
+    const newMessages = {};
     if (!form.username) newMessages.username = "Username is required.";
     if (!form.collegeName) newMessages.collegeName = "College name is required.";
     if (!form.role) newMessages.role = "Please select your role.";
@@ -124,7 +115,7 @@ const SignUp: React.FC = () => {
 
       setGeneralMessage({ text: "✅ Registration successful! Redirecting to login...", type: "success" });
       setTimeout(() => navigate("/", { state: { username: form.username } }), 1000);
-    } catch (err: any) {
+    } catch (err) {
       setGeneralMessage({ text: err.message || "Registration failed.", type: "error" });
     } finally {
       setLoading(false);

@@ -1,6 +1,6 @@
 import axios from "axios";
 
-// src/services/authService.ts
+// src/services/authservice.js
 export const API_BASE_URL = "http://localhost:3000"; // your backend URL
 
 // Fetch all users (for demo; ideally, backend should handle OTP check)
@@ -11,7 +11,7 @@ export const fetchUsers = async () => {
 };
 
 // Send OTP to email via backend
-export const sendOtp = async (email: string) => {
+export const sendOtp = async (email) => {
     const response = await fetch(`${API_BASE_URL}/users/send-otp`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -27,7 +27,7 @@ export const sendOtp = async (email: string) => {
 };
 
 // Verify OTP via backend
-export const verifyOtp = async (email: string, otp: string) => {
+export const verifyOtp = async (email, otp) => {
     const response = await fetch(`${API_BASE_URL}/users/verify-otp`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -42,9 +42,8 @@ export const verifyOtp = async (email: string, otp: string) => {
     return response.json();
 };
 
-
 // Create new user
-export const createUser = async (userData: any) => {
+export const createUser = async (userData) => {
     const response = await axios.post(`${API_BASE_URL}/users`, userData);
     return response.data;
 };

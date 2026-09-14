@@ -6,26 +6,18 @@ import {
 } from 'lucide-react';
 import './AudienceVoting.css';
 
-type Participant = {
-  id: number | string;
-  username?: string;
-  name?: string;
-  email?: string;
-  [key: string]: any;
-};
+const isValidEmail = (email) => /\S+@\S+\.\S+/.test(email);
 
-const isValidEmail = (email: string) => /\S+@\S+\.\S+/.test(email);
-
-const AudienceVoting: React.FC = () => {
+const AudienceVoting = () => {
   const navigate = useNavigate();
   const { events, isEventOngoing } = useEvent();
 
-  const [audienceData, setAudienceData] = useState<any>(null);
-  const [selectedEvent, setSelectedEvent] = useState<any>(null);
-  const [participants, setParticipants] = useState<Participant[]>([]);
-  const [filteredParticipants, setFilteredParticipants] = useState<Participant[]>([]);
-  const [selectedParticipant, setSelectedParticipant] = useState<string>('');
-  const [message, setMessage] = useState<{ text: string; type: 'error' | 'success' } | null>(null);
+  const [audienceData, setAudienceData] = useState(null);
+  const [selectedEvent, setSelectedEvent] = useState(null);
+  const [participants, setParticipants] = useState([]);
+  const [filteredParticipants, setFilteredParticipants] = useState([]);
+  const [selectedParticipant, setSelectedParticipant] = useState('');
+  const [message, setMessage] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   // OTP state
@@ -49,14 +41,14 @@ const AudienceVoting: React.FC = () => {
     if (event) {
       fetch(`http://localhost:3000/user_events/event/${event.id}`)
         .then(res => res.json())
-        .then((data: any[]) => {
+        .then((data) => {
           const normalized = data.map(d => ({
             id: d.userId ?? d.participant_id ?? d.id ?? d.user_id,
             username: d.username ?? d.participantName ?? d.teamName ?? d.name,
             email: d.email ?? d.participantEmail ?? d.participant_email
           }));
-          setParticipants(normalized as Participant[]);
-          setFilteredParticipants(normalized as Participant[]);
+          setParticipants(normalized);
+          setFilteredParticipants(normalized);
         })
         .catch(err => {
           console.error('Error fetching participants:', err);
@@ -89,7 +81,7 @@ const AudienceVoting: React.FC = () => {
 
       setOtpSent(true);
       setMessage({ text: `OTP sent to ${audienceData.email}`, type: 'success' });
-    } catch (err: any) {
+    } catch (err) {
       console.error(err);
       setMessage({ text: err.message || 'Error sending OTP', type: 'error' });
     } finally {
@@ -109,7 +101,7 @@ const AudienceVoting: React.FC = () => {
 
     try {
       setLoading(true);
-      const response = await fetch('http://localhost:3000/users/verify-otp`', {
+      const response = await fetch('http://localhost:3000/users/verify-otp', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: audienceData.email, otp })
@@ -120,7 +112,7 @@ const AudienceVoting: React.FC = () => {
 
       setOtpVerified(true);
       setMessage({ text: '✅ OTP Verified Successfully!', type: 'success' });
-    } catch (err: any) {
+    } catch (err) {
       console.error(err);
       setMessage({ text: err.message || 'Invalid OTP', type: 'error' });
     } finally {
@@ -128,14 +120,14 @@ const AudienceVoting: React.FC = () => {
     }
   };
 
-  const validateVote = (): string | null => {
+  const validateVote = () => {
     if (!selectedParticipant) return 'Please select a participant to vote for';
     if (!otpSent) return 'Please get OTP before voting';
     if (!otpVerified) return 'Please verify OTP before voting';
     return null;
   };
 
-  const handleVoteSubmit = async (e: React.FormEvent) => {
+  const handleVoteSubmit = async (e) => {
     e.preventDefault();
     const error = validateVote();
     if (error) {
@@ -165,7 +157,7 @@ const AudienceVoting: React.FC = () => {
         sessionStorage.removeItem('audienceData');
         navigate('/home');
       }, 2000);
-    } catch (err: any) {
+    } catch (err) {
       setMessage({ text: err.message || 'An error occurred while voting', type: 'error' });
     } finally {
       setIsSubmitting(false);

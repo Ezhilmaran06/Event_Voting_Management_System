@@ -6,13 +6,13 @@ import {
 } from 'recharts';
 import { ArrowLeft, Trophy, Medal, Award, RefreshCw } from 'lucide-react';
 
-const Results: React.FC = () => {
-  const { eventId } = useParams<{ eventId: string }>();
-  const { events = [], getResults } = useEvent();
-  const [event, setEvent] = useState<any>(null);
-  const [results, setResults] = useState<any[]>([]);
-  const [filteredResults, setFilteredResults] = useState<any[]>([]);
-  const [categories, setCategories] = useState<string[]>([]);
+const Results = () => {
+  const { eventId } = useParams();
+  const { events = [] } = useEvent();
+  const [event, setEvent] = useState(null);
+  const [results, setResults] = useState([]);
+  const [filteredResults, setFilteredResults] = useState([]);
+  const [categories, setCategories] = useState([]);
   const [selectedCategory, setSelectedCategory] = useState('');
   const [refreshing, setRefreshing] = useState(false);
   const navigate = useNavigate();
@@ -35,12 +35,12 @@ const Results: React.FC = () => {
     setEvent(eventData);
 
     // Load results from backend
-    let resultsData: any[] = [];
+    let resultsData = [];
     try {
       const resp = await fetch(`http://localhost:3000/votes/${eventId}`);
       const respData = await resp.json();
       // Normalize backend rows to a consistent shape used by the UI
-      resultsData = (respData || []).map((r: any) => ({
+      resultsData = (respData || []).map((r) => ({
         id: r.participant_id ?? r.user_id ?? r.id,
         teamName: r.teamName ?? r.team_name ?? null,
         participantName: r.participantName ?? r.username ?? r.name ?? null,
@@ -66,15 +66,14 @@ const Results: React.FC = () => {
       ];
     }
 
-  setResults(resultsData);
-  setFilteredResults(resultsData);
+    setResults(resultsData);
+    setFilteredResults(resultsData);
 
     // Set up unique categories, if you have performanceCategory
     const uniqueCategories = Array.from(new Set(resultsData.map(r => r.performanceCategory).filter(Boolean)));
     setCategories(uniqueCategories);
     setSelectedCategory('');
   };
-
 
   useEffect(() => {
     loadResults();
@@ -111,7 +110,7 @@ const Results: React.FC = () => {
 
   const winners = enrichedResults.slice(0, 3);
 
-  const getRankIcon = (rank: number) => {
+  const getRankIcon = (rank) => {
     switch (rank) {
       case 0: return <Trophy size={32} className="text-yellow-500" />;
       case 1: return <Medal size={32} className="text-gray-500" />;
@@ -120,7 +119,7 @@ const Results: React.FC = () => {
     }
   };
 
-  const getRankClass = (rank: number) => {
+  const getRankClass = (rank) => {
     switch (rank) {
       case 0: return 'border-yellow-400 bg-gradient-to-br from-yellow-50 to-yellow-100';
       case 1: return 'border-gray-400 bg-gradient-to-br from-gray-50 to-gray-100';

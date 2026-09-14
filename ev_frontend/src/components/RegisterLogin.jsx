@@ -3,12 +3,12 @@ import { useNavigate, Link } from 'react-router-dom';
 import { useEvent } from '../context/EventContext';
 import { Users, Vote, ArrowLeft } from 'lucide-react';
 
-const RegisterLogin: React.FC = () => {
+const RegisterLogin = () => {
   const navigate = useNavigate();
   const { events, setEvents } = useEvent();
-  const [users, setUsers] = useState<any[]>([]);
+  const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [currentUser, setCurrentUser] = useState<any>(null);
+  const [currentUser, setCurrentUser] = useState(null);
   const [audienceData, setAudienceData] = useState({
     email: '',
     eventId: ''
@@ -43,7 +43,7 @@ const RegisterLogin: React.FC = () => {
         const data = await response.json();
 
         if (response.ok) {
-          const transformedEvents = data.map((event: any) => ({
+          const transformedEvents = data.map((event) => ({
             id: event.id,
             eventName: event.eventName,
             eventType: event.eventType,
@@ -88,7 +88,7 @@ const RegisterLogin: React.FC = () => {
     fetchUsers();
   }, []);
 
-  const handleAudienceChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+  const handleAudienceChange = (e) => {
     const { name, value } = e.target;
     setAudienceData(prev => ({
       ...prev,
@@ -96,7 +96,7 @@ const RegisterLogin: React.FC = () => {
     }));
   };
 
-  const validateAudienceLogin = (): string | null => {
+  const validateAudienceLogin = () => {
     if (!currentUser || !currentUser.email) return 'No user logged in';
     const userExists = users.find(user => user.email === currentUser.email);
     if (!userExists) return 'Logged-in user’s email not registered. Please contact administrator.';
@@ -104,7 +104,7 @@ const RegisterLogin: React.FC = () => {
     return null;
   };
 
-  const handleAudienceLogin = (e: React.FormEvent) => {
+  const handleAudienceLogin = (e) => {
     e.preventDefault();
 
     if (loading) {
@@ -189,7 +189,7 @@ const RegisterLogin: React.FC = () => {
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 py-10">
       <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
         <header className="text-center mb-12 relative">
-          {/* ✅ Back to Home Button */}
+          {/* Back to Home Button */}
           <button
             onClick={() => navigate("/home")}
             className="absolute left-0 top-1/2 -translate-y-1/2 flex items-center gap-2 text-gray-600 hover:text-blue-600 font-medium transition-colors"
@@ -299,7 +299,6 @@ const RegisterLogin: React.FC = () => {
                     ))}
                   </select>
                 </div>
-                {/* ---- Email field removed ---- */}
                 {currentUser && (
                   <div>
                     <label className="block text-sm font-semibold text-gray-700 mb-2">Email Address</label>

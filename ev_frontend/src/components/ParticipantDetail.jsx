@@ -2,11 +2,11 @@ import React, { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { ArrowLeft } from 'lucide-react';
 
-const ParticipantDetail: React.FC = () => {
-  const { eventId, participantId } = useParams<{ eventId: string; participantId: string }>();
-  const [votes, setVotes] = useState<any[]>([]);
+const ParticipantDetail = () => {
+  const { eventId, participantId } = useParams();
+  const [votes, setVotes] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState(null);
 
   useEffect(() => {
     if (!eventId || !participantId) return;
