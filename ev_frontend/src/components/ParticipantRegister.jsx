@@ -81,8 +81,8 @@ const ParticipantRegister = () => {
     try {
       setLoading(true);
       await api.candidates.register({
-        user_id: currentUser.id,
-        event_id: Number(formData.eventId),
+        user_id: currentUser.id || currentUser._id,
+        event_id: formData.eventId,
         team_name: formData.teamName,
         team_leader: formData.teamLeaderName,
         institution: formData.institution,

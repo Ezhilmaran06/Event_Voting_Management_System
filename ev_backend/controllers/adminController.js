@@ -1,47 +1,81 @@
-const db = require('../db');
+const mongoose = require('mongoose');
+const User = require('../models/User');
+const Event = require('../models/Event');
+const UserEvent = require('../models/UserEvent');
+const Vote = require('../models/Vote');
+const AuditLog = require('../models/AuditLog');
 
 // 1. Get system-wide platform statistics
 exports.getStats = async (req, res) => {
   try {
-    const [userCount] = await db.query('SELECT COUNT(*) AS count FROM users');
-    const [eventCount] = await db.query('SELECT COUNT(*) AS count FROM events');
-    const [candidateCount] = await db.query('SELECT COUNT(*) AS count FROM user_events');
-    const [voteCount] = await db.query('SELECT COUNT(*) AS count FROM votes');
-    
+    const userCount = await User.countDocuments();
+    const eventCount = await Event.countDocuments();
+    const candidateCount = await UserEvent.countDocuments();
+    const voteCount = await Vote.countDocuments();
+
     // Active events
-    const [activeEvents] = await db.query(
-      `SELECT COUNT(*) AS count FROM events WHERE end_date_time >= NOW() AND (status IS NULL OR status != 'Cancelled')`
-    );
+    const activeEvents = await Event.countDocuments({
+      end_date_time: { $gte: new Date() },
+      status: { $nin: ['Cancelled', 'Draft'] }
+    });
 
     // Votes per category
-    const [categoryStats] = await db.query(`
-      SELECT e.type AS category, COUNT(v.id) AS votes, COUNT(DISTINCT e.id) AS events
-      FROM events e
-      LEFT JOIN votes v ON v.event_id = e.id
-      GROUP BY e.type
-      ORDER BY votes DESC
-    `);
+    const categoryStats = await Event.aggregate([
+      {
+        $lookup: {
+          from: 'votes',
+          localField: '_id',
+          foreignField: 'event_id',
+          as: 'eventVotes'
+        }
+      },
+      {
+        $group: {
+          _id: '$type',
+          events: { $sum: 1 },
+          votes: { $sum: { $size: '$eventVotes' } }
+        }
+      },
+      {
+        $project: {
+          _id: 0,
+          category: '$_id',
+          events: 1,
+          votes: 1
+        }
+      },
+      { $sort: { votes: -1 } }
+    ]);
 
     // Turnout rate
-    const totalUsers = userCount[0].count || 1;
-    const [distinctVoters] = await db.query('SELECT COUNT(DISTINCT voter_id) AS count FROM votes');
-    const turnoutRate = Math.round(((distinctVoters[0].count || 0) / totalUsers) * 100);
+    const totalUsers = userCount || 1;
+    const distinctVoters = (await Vote.distinct('voter_id')).length;
+    const turnoutRate = Math.round((distinctVoters / totalUsers) * 100);
 
     // Recent activity (audit logs)
-    const [recentActivity] = await db.query(
-      `SELECT id, user_email, action, details, created_at FROM audit_logs ORDER BY created_at DESC LIMIT 8`
-    );
+    const recentActivity = await AuditLog.find()
+      .sort({ createdAt: -1 })
+      .limit(8)
+      .lean();
+
+    const formattedRecentActivity = recentActivity.map(a => ({
+      id: a._id.toString(),
+      user_email: a.user_email,
+      action: a.action,
+      details: a.details,
+      created_at: a.createdAt
+    }));
 
     res.status(200).json({
-      totalUsers: userCount[0].count || 0,
-      totalEvents: eventCount[0].count || 0,
-      totalCandidates: candidateCount[0].count || 0,
-      totalVotes: voteCount[0].count || 0,
-      activeEvents: activeEvents[0].count || 0,
-      distinctVoters: distinctVoters[0].count || 0,
+      totalUsers,
+      totalEvents: eventCount,
+      totalCandidates: candidateCount,
+      totalVotes: voteCount,
+      activeEvents,
+      distinctVoters,
       turnoutRate: `${turnoutRate}%`,
       categoryStats,
-      recentActivity
+      recentActivity: formattedRecentActivity
     });
   } catch (err) {
     console.error('getStats error:', err);
@@ -53,15 +87,22 @@ exports.getStats = async (req, res) => {
 exports.getAuditLogs = async (req, res) => {
   try {
     const limit = parseInt(req.query.limit) || 50;
-    const [logs] = await db.query(
-      `SELECT id, user_id, user_email, action, details, ip_address, created_at
-       FROM audit_logs
-       ORDER BY created_at DESC
-       LIMIT ?`,
-      [limit]
-    );
+    const logs = await AuditLog.find()
+      .sort({ createdAt: -1 })
+      .limit(limit)
+      .lean();
 
-    res.status(200).json(logs);
+    const formatted = logs.map(l => ({
+      id: l._id.toString(),
+      user_id: l.user_id ? l.user_id.toString() : null,
+      user_email: l.user_email,
+      action: l.action,
+      details: l.details,
+      ip_address: l.ip_address,
+      created_at: l.createdAt
+    }));
+
+    res.status(200).json(formatted);
   } catch (err) {
     console.error('getAuditLogs error:', err);
     res.status(500).json({ error: 'Failed to fetch audit logs' });
@@ -74,28 +115,40 @@ exports.exportReport = async (req, res) => {
 
   try {
     if (type === 'results') {
-      // Export results for event :id
-      const [events] = await db.query('SELECT name FROM events WHERE id = ?', [id]);
-      const eventName = events[0]?.name || `Event_${id}`;
+      if (!mongoose.Types.ObjectId.isValid(id)) {
+        return res.status(404).json({ error: 'Invalid event ID' });
+      }
 
-      const [rows] = await db.query(`
-        SELECT 
-          ue.user_id AS candidate_id,
-          COALESCE(ue.team_name, u.Username, 'Candidate') AS team_name,
-          COALESCE(ue.team_leader, u.Username) AS leader_name,
-          u.email,
-          COALESCE(ue.institution, u.clg_name) AS institution,
-          COALESCE(ue.performance_category, 'General') AS category,
-          COUNT(v.id) AS total_votes
-        FROM user_events ue
-        JOIN users u ON u.id = ue.user_id
-        LEFT JOIN votes v ON v.participant_id = ue.user_id AND v.event_id = ue.event_id
-        WHERE ue.event_id = ?
-        GROUP BY ue.user_id, ue.team_name, ue.team_leader, u.email, ue.institution, u.clg_name, ue.performance_category, u.Username
-        ORDER BY total_votes DESC
-      `, [id]);
+      const event = await Event.findById(id);
+      const eventName = event?.name || `Event_${id}`;
 
-      // Build CSV
+      // Candidates
+      const candidates = await UserEvent.find({ event_id: id }).populate('user_id');
+
+      // Votes
+      const voteCounts = await Vote.aggregate([
+        { $match: { event_id: new mongoose.Types.ObjectId(id) } },
+        { $group: { _id: '$participant_id', count: { $sum: 1 } } }
+      ]);
+      const voteMap = new Map();
+      voteCounts.forEach(vc => voteMap.set(vc._id.toString(), vc.count));
+
+      const rows = candidates.map(c => {
+        const u = c.user_id || {};
+        const pId = u._id ? u._id.toString() : '';
+        return {
+          candidate_id: pId,
+          team_name: c.team_name || u.Username || 'Candidate',
+          leader_name: c.team_leader || u.Username || 'Candidate',
+          email: u.email || '',
+          institution: c.institution || u.clg_name || '',
+          category: c.performance_category || 'General',
+          total_votes: voteMap.get(pId) || 0
+        };
+      });
+
+      rows.sort((a, b) => b.total_votes - a.total_votes);
+
       let csv = 'Rank,Team Name,Leader,Email,Institution,Category,Votes\n';
       rows.forEach((r, idx) => {
         csv += `${idx + 1},"${r.team_name}","${r.leader_name}","${r.email}","${r.institution}","${r.category}",${r.total_votes}\n`;
@@ -105,13 +158,13 @@ exports.exportReport = async (req, res) => {
       res.setHeader('Content-Disposition', `attachment; filename="results_${id}_${Date.now()}.csv"`);
       return res.status(200).send(csv);
     } else if (type === 'users') {
-      const [users] = await db.query(`
-        SELECT id, Username, email, role, clg_name, ph_no, created_at FROM users ORDER BY id ASC
-      `);
+      const users = await User.find().sort({ createdAt: 1 }).lean();
+
       let csv = 'ID,Username,Email,Role,College,Phone,Registered At\n';
       users.forEach(u => {
-        csv += `${u.id},"${u.Username}","${u.email}","${u.role}","${u.clg_name || ''}","${u.ph_no || ''}","${u.created_at || ''}"\n`;
+        csv += `"${u._id.toString()}","${u.Username || ''}","${u.email}","${u.role || ''}","${u.clg_name || ''}","${u.ph_no || ''}","${u.createdAt || ''}"\n`;
       });
+
       res.setHeader('Content-Type', 'text/csv');
       res.setHeader('Content-Disposition', `attachment; filename="users_export_${Date.now()}.csv"`);
       return res.status(200).send(csv);

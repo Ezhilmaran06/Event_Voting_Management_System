@@ -1,11 +1,16 @@
-const db = require('../db');
+const Notification = require('../models/Notification');
+const User = require('../models/User');
 
 exports.createNotification = async (userId, title, message, type = 'info') => {
   try {
-    await db.query(
-      `INSERT INTO notifications (user_id, title, message, type) VALUES (?, ?, ?, ?)`,
-      [userId, title, message, type]
-    );
+    if (!userId) return;
+    await Notification.create({
+      user_id: userId,
+      title,
+      message,
+      type,
+      is_read: false
+    });
   } catch (err) {
     console.error('⚠️ Notification error:', err.message);
   }
@@ -13,13 +18,18 @@ exports.createNotification = async (userId, title, message, type = 'info') => {
 
 exports.notifyAllUsers = async (title, message, type = 'info') => {
   try {
-    const [users] = await db.query(`SELECT id FROM users`);
-    for (const u of users) {
-      await db.query(
-        `INSERT INTO notifications (user_id, title, message, type) VALUES (?, ?, ?, ?)`,
-        [u.id, title, message, type]
-      );
-    }
+    const users = await User.find({}, '_id').lean();
+    if (users.length === 0) return;
+
+    const notifs = users.map(u => ({
+      user_id: u._id,
+      title,
+      message,
+      type,
+      is_read: false
+    }));
+
+    await Notification.insertMany(notifs);
   } catch (err) {
     console.error('⚠️ Broadcast notification error:', err.message);
   }

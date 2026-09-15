@@ -1,4 +1,8 @@
-const db = require('../db');
+const mongoose = require('mongoose');
+const UserEvent = require('../models/UserEvent');
+const Event = require('../models/Event');
+const User = require('../models/User');
+const Vote = require('../models/Vote');
 const { logAudit } = require('../utils/auditLogger');
 const { createNotification } = require('../utils/notificationHelper');
 
@@ -22,8 +26,8 @@ exports.registerUserToEvent = async (req, res) => {
     teamPictureUrl
   } = req.body;
 
-  const finalUserId = user_id || userId || req.user?.id;
-  const finalEventId = event_id || eventId;
+  const rawUserId = user_id || userId || req.user?.id;
+  const rawEventId = event_id || eventId;
   const finalTeamName = team_name || teamName || 'Participant Team';
   const finalLeader = team_leader || teamLeader || null;
   const finalDetails = team_details || teamDetails || '';
@@ -31,57 +35,53 @@ exports.registerUserToEvent = async (req, res) => {
   const finalInstitution = institution || null;
   const finalPicture = team_picture || teamPictureUrl || null;
 
-  if (!finalUserId || !finalEventId) {
+  if (!rawUserId || !rawEventId) {
     return res.status(400).json({ error: 'user_id and event_id are required' });
   }
 
   try {
-    // Check if event exists
-    const [events] = await db.query('SELECT name FROM events WHERE id = ?', [finalEventId]);
-    if (events.length === 0) {
+    if (!mongoose.Types.ObjectId.isValid(rawUserId) || !mongoose.Types.ObjectId.isValid(rawEventId)) {
+      return res.status(400).json({ error: 'Invalid user or event ID format' });
+    }
+
+    const event = await Event.findById(rawEventId);
+    if (!event) {
       return res.status(404).json({ error: 'Event not found' });
     }
 
-    const [result] = await db.query(
-      `INSERT INTO user_events (
-         user_id, event_id, team_name, team_leader, team_details,
-         performance_category, institution, team_picture, status
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'approved')`,
-      [
-        finalUserId,
-        finalEventId,
-        finalTeamName,
-        finalLeader,
-        finalDetails,
-        finalCategory,
-        finalInstitution,
-        finalPicture
-      ]
-    );
-
-    const registrationId = result.insertId;
+    const registration = await UserEvent.create({
+      user_id: rawUserId,
+      event_id: rawEventId,
+      team_name: finalTeamName,
+      team_leader: finalLeader,
+      team_details: finalDetails,
+      performance_category: finalCategory,
+      institution: finalInstitution,
+      team_picture: finalPicture,
+      status: 'approved'
+    });
 
     await createNotification(
-      finalUserId,
+      rawUserId,
       'Registration Confirmed!',
-      `You have successfully registered ${finalTeamName} for "${events[0].name}".`,
+      `You have successfully registered ${finalTeamName} for "${event.name}".`,
       'success'
     );
 
     await logAudit(
-      finalUserId,
+      rawUserId,
       req.user?.email,
       'CANDIDATE_REGISTER',
-      `Registered for event ${finalEventId} as ${finalTeamName}`,
+      `Registered for event ${rawEventId} as ${finalTeamName}`,
       req.ip
     );
 
     res.status(201).json({
-      id: registrationId,
+      id: registration.id,
       message: 'Participant registered to event successfully'
     });
   } catch (err) {
-    if (err.code === 'ER_DUP_ENTRY') {
+    if (err.code === 11000) {
       res.status(400).json({ error: 'You are already registered for this event' });
     } else {
       console.error('registerUserToEvent error:', err);
@@ -95,31 +95,37 @@ exports.getUserEvents = async (req, res) => {
   const userId = req.params.id || req.user?.id;
 
   try {
-    const [rows] = await db.query(
-      `SELECT 
-         e.id AS eventId,
-         e.name AS eventName,
-         e.type AS eventType,
-         e.start_date_time AS startDateTime,
-         e.end_date_time AS endDateTime,
-         e.voting_start AS votingStart,
-         e.voting_end AS votingEnd,
-         e.location,
-         ue.id AS userEventId,
-         ue.team_name AS teamName,
-         ue.team_leader AS teamLeader,
-         ue.team_details AS teamDetails,
-         ue.performance_category AS performanceCategory,
-         ue.team_picture AS teamPictureUrl,
-         ue.registered_at AS registeredAt,
-         ue.status AS registrationStatus
-       FROM events e
-       JOIN user_events ue ON e.id = ue.event_id
-       WHERE ue.user_id = ?
-       ORDER BY ue.registered_at DESC`,
-      [userId]
-    );
-    res.status(200).json(rows);
+    if (!mongoose.Types.ObjectId.isValid(userId)) {
+      return res.status(200).json([]);
+    }
+
+    const records = await UserEvent.find({ user_id: userId })
+      .populate('event_id')
+      .sort({ registered_at: -1 });
+
+    const formatted = records.map(r => {
+      const ev = r.event_id || {};
+      return {
+        eventId: ev._id ? ev._id.toString() : null,
+        eventName: ev.name,
+        eventType: ev.type,
+        startDateTime: ev.start_date_time,
+        endDateTime: ev.end_date_time,
+        votingStart: ev.voting_start,
+        votingEnd: ev.voting_end,
+        location: ev.location,
+        userEventId: r.id,
+        teamName: r.team_name,
+        teamLeader: r.team_leader,
+        teamDetails: r.team_details,
+        performanceCategory: r.performance_category,
+        teamPictureUrl: r.team_picture,
+        registeredAt: r.registered_at,
+        registrationStatus: r.status
+      };
+    });
+
+    res.status(200).json(formatted);
   } catch (err) {
     console.error('getUserEvents error:', err);
     res.status(500).json({ error: 'Failed to fetch user events' });
@@ -131,34 +137,47 @@ exports.getEventUsers = async (req, res) => {
   const eventId = req.params.id;
 
   try {
-    const [rows] = await db.query(
-      `SELECT 
-         ue.id AS userEventId,
-         ue.id AS id,
-         ue.user_id AS userId,
-         ue.user_id AS participant_id,
-         COALESCE(ue.team_name, u.Username, 'Participant') AS teamName,
-         COALESCE(ue.team_leader, u.Username) AS teamLeader,
-         ue.performance_category AS performanceCategory,
-         ue.team_details AS teamDetails,
-         COALESCE(ue.institution, u.clg_name) AS institution,
-         COALESCE(ue.team_picture, u.avatar) AS teamPictureUrl,
-         ue.registered_at AS registeredAt,
-         ue.status,
-         u.Username AS username,
-         u.email,
-         u.clg_name AS collegeName,
-         COUNT(v.id) AS voteCount
-       FROM user_events ue
-       JOIN users u ON u.id = ue.user_id
-       LEFT JOIN votes v ON v.participant_id = ue.user_id AND v.event_id = ue.event_id
-       WHERE ue.event_id = ?
-       GROUP BY ue.id, ue.user_id, ue.team_name, ue.team_leader, ue.performance_category,
-                ue.team_details, ue.institution, ue.team_picture, ue.registered_at, ue.status,
-                u.Username, u.email, u.clg_name
-       ORDER BY voteCount DESC, ue.registered_at ASC`,
-      [eventId]
-    );
+    if (!mongoose.Types.ObjectId.isValid(eventId)) {
+      return res.status(200).json([]);
+    }
+
+    const records = await UserEvent.find({ event_id: eventId }).populate('user_id');
+
+    // Aggregate vote count per candidate in this event
+    const voteCounts = await Vote.aggregate([
+      { $match: { event_id: new mongoose.Types.ObjectId(eventId) } },
+      { $group: { _id: '$participant_id', count: { $sum: 1 } } }
+    ]);
+    const voteMap = new Map();
+    voteCounts.forEach(vc => voteMap.set(vc._id.toString(), vc.count));
+
+    const rows = records.map(ue => {
+      const u = ue.user_id || {};
+      const uId = u._id ? u._id.toString() : (ue.user_id ? ue.user_id.toString() : null);
+      const voteCount = voteMap.get(uId) || 0;
+
+      return {
+        userEventId: ue.id,
+        id: ue.id,
+        userId: uId,
+        participant_id: uId,
+        teamName: ue.team_name || u.Username || 'Participant',
+        teamLeader: ue.team_leader || u.Username,
+        performanceCategory: ue.performance_category || 'General',
+        teamDetails: ue.team_details || '',
+        institution: ue.institution || u.clg_name || '',
+        teamPictureUrl: ue.team_picture || u.avatar || null,
+        registeredAt: ue.registered_at,
+        status: ue.status,
+        username: u.Username,
+        email: u.email,
+        collegeName: u.clg_name,
+        voteCount
+      };
+    });
+
+    // Sort by votes desc, then registeredAt asc
+    rows.sort((a, b) => b.voteCount - a.voteCount);
 
     res.status(200).json(rows);
   } catch (err) {
@@ -170,35 +189,53 @@ exports.getEventUsers = async (req, res) => {
 // 4. Get all candidates across all events (for Candidate Explorer & Comparison)
 exports.getAllUserEvents = async (req, res) => {
   try {
-    const [rows] = await db.query(
-      `SELECT 
-         ue.id,
-         ue.id AS userEventId,
-         ue.user_id,
-         ue.event_id,
-         ue.team_name AS teamName,
-         ue.team_leader AS teamLeader,
-         ue.performance_category AS performanceCategory,
-         ue.team_details AS teamDetails,
-         ue.institution,
-         ue.team_picture AS teamPictureUrl,
-         ue.registered_at,
-         ue.status,
-         u.email AS user_email,
-         u.Username AS username,
-         e.name AS event_name,
-         e.type AS event_type,
-         COUNT(v.id) AS voteCount
-       FROM user_events ue
-       LEFT JOIN users u ON ue.user_id = u.id
-       LEFT JOIN events e ON ue.event_id = e.id
-       LEFT JOIN votes v ON v.participant_id = ue.user_id AND v.event_id = ue.event_id
-       GROUP BY ue.id, ue.user_id, ue.event_id, ue.team_name, ue.team_leader,
-                ue.performance_category, ue.team_details, ue.institution,
-                ue.team_picture, ue.registered_at, ue.status, u.email, u.Username,
-                e.name, e.type
-       ORDER BY ue.registered_at DESC`
-    );
+    const records = await UserEvent.find()
+      .populate('user_id')
+      .populate('event_id')
+      .sort({ registered_at: -1 });
+
+    const voteCounts = await Vote.aggregate([
+      {
+        $group: {
+          _id: { event_id: '$event_id', participant_id: '$participant_id' },
+          count: { $sum: 1 }
+        }
+      }
+    ]);
+    const voteMap = new Map();
+    voteCounts.forEach(vc => {
+      const key = `${vc._id.event_id}_${vc._id.participant_id}`;
+      voteMap.set(key, vc.count);
+    });
+
+    const rows = records.map(ue => {
+      const u = ue.user_id || {};
+      const e = ue.event_id || {};
+      const uId = u._id ? u._id.toString() : null;
+      const eId = e._id ? e._id.toString() : null;
+      const voteCount = voteMap.get(`${eId}_${uId}`) || 0;
+
+      return {
+        id: ue.id,
+        userEventId: ue.id,
+        user_id: uId,
+        event_id: eId,
+        teamName: ue.team_name || u.Username || 'Candidate',
+        teamLeader: ue.team_leader || u.Username,
+        performanceCategory: ue.performance_category || 'General',
+        teamDetails: ue.team_details || '',
+        institution: ue.institution || u.clg_name || '',
+        teamPictureUrl: ue.team_picture || u.avatar || null,
+        registered_at: ue.registered_at,
+        status: ue.status,
+        user_email: u.email,
+        username: u.Username,
+        event_name: e.name,
+        event_type: e.type,
+        voteCount
+      };
+    });
+
     res.status(200).json(rows);
   } catch (err) {
     console.error('getAllUserEvents error:', err);
@@ -208,7 +245,7 @@ exports.getAllUserEvents = async (req, res) => {
 
 // 5. Update an existing user_event entry
 exports.updateUserEvent = async (req, res) => {
-  const id = req.params.id;
+  const { id } = req.params;
   const {
     team_name, teamName,
     team_leader, teamLeader,
@@ -219,27 +256,20 @@ exports.updateUserEvent = async (req, res) => {
   } = req.body;
 
   try {
-    const [result] = await db.query(
-      `UPDATE user_events SET 
-         team_name = COALESCE(?, team_name),
-         team_leader = COALESCE(?, team_leader),
-         team_details = COALESCE(?, team_details),
-         performance_category = COALESCE(?, performance_category),
-         institution = COALESCE(?, institution),
-         team_picture = COALESCE(?, team_picture)
-       WHERE id = ?`,
-      [
-        team_name || teamName || null,
-        team_leader || teamLeader || null,
-        team_details || teamDetails || null,
-        performance_category || performanceCategory || null,
-        institution || null,
-        team_picture || teamPictureUrl || null,
-        id
-      ]
-    );
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(404).json({ error: 'Participant record not found' });
+    }
 
-    if (result.affectedRows === 0) {
+    const updateFields = {};
+    if (team_name !== undefined || teamName !== undefined) updateFields.team_name = team_name || teamName;
+    if (team_leader !== undefined || teamLeader !== undefined) updateFields.team_leader = team_leader || teamLeader;
+    if (team_details !== undefined || teamDetails !== undefined) updateFields.team_details = team_details || teamDetails;
+    if (performance_category !== undefined || performanceCategory !== undefined) updateFields.performance_category = performance_category || performanceCategory;
+    if (institution !== undefined) updateFields.institution = institution;
+    if (team_picture !== undefined || teamPictureUrl !== undefined) updateFields.team_picture = team_picture || teamPictureUrl;
+
+    const updated = await UserEvent.findByIdAndUpdate(id, { $set: updateFields }, { new: true });
+    if (!updated) {
       return res.status(404).json({ error: 'Participant record not found' });
     }
 
@@ -252,20 +282,23 @@ exports.updateUserEvent = async (req, res) => {
 
 // 6. Delete a candidate/user_event entry
 exports.deleteUserEvent = async (req, res) => {
-  const id = req.params.id;
+  const { id } = req.params;
 
   try {
-    const [existing] = await db.query('SELECT user_id, event_id FROM user_events WHERE id = ?', [id]);
-    if (existing.length === 0) {
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(404).json({ error: 'Participant record not found' });
+    }
+
+    const existing = await UserEvent.findById(id);
+    if (!existing) {
       return res.status(404).json({ error: 'Participant record not found' });
     }
 
     // Delete related votes
-    await db.query('DELETE FROM votes WHERE event_id = ? AND participant_id = ?', [existing[0].event_id, existing[0].user_id]);
-    await db.query('DELETE FROM user_events WHERE id = ?', [id]);
+    await Vote.deleteMany({ event_id: existing.event_id, participant_id: existing.user_id });
+    await UserEvent.findByIdAndDelete(id);
 
     await logAudit(req.user?.id, req.user?.email, 'CANDIDATE_REMOVE', `Removed candidate record ID ${id}`, req.ip);
-
     res.status(200).json({ message: 'Candidate removed successfully' });
   } catch (err) {
     console.error('deleteUserEvent error:', err);

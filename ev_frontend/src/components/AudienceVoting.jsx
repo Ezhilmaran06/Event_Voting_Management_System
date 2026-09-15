@@ -169,14 +169,14 @@ const AudienceVoting = () => {
       (p) => String(p.participant_id || p.userId || p.id) === String(selectedParticipantId)
     );
 
-    const voterId = currentUser?.id || audienceData?.userId || 8; // fallback voter ID
+    const voterId = currentUser?.id || currentUser?._id || audienceData?.userId || (currentUser ? currentUser.id : null);
 
     try {
       setIsSubmitting(true);
       const res = await api.votes.castVote({
-        eventId: Number(selectedEvent.id),
-        participantId: Number(selectedParticipantId),
-        voterId: Number(voterId),
+        eventId: selectedEvent.id || selectedEvent._id,
+        participantId: selectedParticipantId,
+        voterId: voterId,
       });
 
       const receiptPayload = {

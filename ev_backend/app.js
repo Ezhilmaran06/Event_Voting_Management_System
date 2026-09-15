@@ -1,8 +1,9 @@
 const express = require('express');
 const cors = require('cors');
+const mongoose = require('mongoose');
 require('dotenv').config();
 
-const initializeDatabase = require('./db_init');
+const connectDB = require('./config/db');
 const usersRoutes = require('./routes/usersRoutes');
 const eventsRoutes = require('./routes/eventsRoutes');
 const userEventsRoutes = require('./routes/userEventsRoutes');
@@ -23,14 +24,20 @@ app.use(cors({
   allowedHeaders: ['Content-Type', 'Authorization']
 }));
 
-// Run schema initialization and migrations on startup
-initializeDatabase().catch(err => {
-  console.error('Database migration warning:', err.message);
+// Connect to MongoDB
+connectDB().catch(err => {
+  console.error('Database connection error on startup:', err.message);
 });
 
-// Health check
+// Health check endpoint
 app.get('/api/health', (req, res) => {
-  res.status(200).json({ status: 'healthy', timestamp: new Date().toISOString() });
+  const isDbConnected = mongoose.connection.readyState === 1;
+  res.status(200).json({
+    status: isDbConnected ? 'healthy' : 'degraded',
+    database: isDbConnected ? 'connected' : 'disconnected',
+    databaseEngine: 'MongoDB + Mongoose',
+    timestamp: new Date().toISOString()
+  });
 });
 
 // Core Routes (both standard and /api prefixed to prevent mismatches)
@@ -63,8 +70,10 @@ app.use((err, req, res, next) => {
 });
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log(`🚀 Event Organization & Voting Server running on http://localhost:${PORT}`);
-});
+if (process.env.NODE_ENV !== 'test') {
+  app.listen(PORT, () => {
+    console.log(`🚀 Event Organization & Voting Server running on http://localhost:${PORT}`);
+  });
+}
 
 module.exports = app;
