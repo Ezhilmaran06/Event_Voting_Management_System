@@ -1,49 +1,23 @@
-import axios from "axios";
+import api, { API_BASE_URL } from './api';
 
-// src/services/authservice.js
-export const API_BASE_URL = "http://localhost:3000"; // your backend URL
+export { API_BASE_URL };
 
-// Fetch all users (for demo; ideally, backend should handle OTP check)
 export const fetchUsers = async () => {
-    const response = await fetch(`${API_BASE_URL}/users`);
-    if (!response.ok) throw new Error("Failed to fetch users");
-    return response.json();
+  return await api.auth.getUsers();
 };
 
-// Send OTP to email via backend
 export const sendOtp = async (email) => {
-    const response = await fetch(`${API_BASE_URL}/users/send-otp`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email }),
-    });
-
-    if (!response.ok) {
-        const data = await response.json();
-        throw new Error(data.error || "Failed to send OTP");
-    }
-
-    return response.json();
+  return await api.auth.sendOtp(email);
 };
 
-// Verify OTP via backend
 export const verifyOtp = async (email, otp) => {
-    const response = await fetch(`${API_BASE_URL}/users/verify-otp`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, otp }),
-    });
-
-    if (!response.ok) {
-        const data = await response.json();
-        throw new Error(data.error || "Invalid OTP");
-    }
-
-    return response.json();
+  return await api.auth.verifyOtp(email, otp);
 };
 
-// Create new user
 export const createUser = async (userData) => {
-    const response = await axios.post(`${API_BASE_URL}/users`, userData);
-    return response.data;
+  return await api.auth.register(userData);
+};
+
+export const login = async (credentials) => {
+  return await api.auth.login(credentials);
 };

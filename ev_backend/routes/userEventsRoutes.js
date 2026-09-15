@@ -4,22 +4,17 @@ const {
   registerUserToEvent,
   getUserEvents,
   getEventUsers,
-  getAllUserEvents
-  , updateUserEvent
+  getAllUserEvents,
+  updateUserEvent,
+  deleteUserEvent
 } = require('../controllers/userEventsController');
+const { optionalAuth } = require('../middleware/authMiddleware');
 
-// POST /api/user-events/register
-router.post('/', registerUserToEvent);
-
-// GET /api/user-events/user/:id
+router.post('/', optionalAuth, registerUserToEvent);
 router.get('/user/:id', getUserEvents);
-
-// GET /api/user-events/event/:id
 router.get('/event/:id', getEventUsers);
-
 router.get('/', getAllUserEvents);
-
-// PUT /user_events/:id
-router.put('/:id', updateUserEvent);
+router.put('/:id', optionalAuth, updateUserEvent);
+router.delete('/:id', optionalAuth, deleteUserEvent);
 
 module.exports = router;

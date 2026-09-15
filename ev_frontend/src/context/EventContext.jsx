@@ -1,6 +1,7 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import api from '../services/api';
 
-const EventContext = createContext(undefined);
+const EventContext = createContext(null);
 
 export const useEvent = () => {
   const context = useContext(EventContext);
@@ -12,147 +13,98 @@ export const useEvent = () => {
 
 export const EventProvider = ({ children }) => {
   const [events, setEvents] = useState([]);
-  const [participants, setParticipants] = useState([]);
-  const [votes, setVotes] = useState([]);
-
-  // Load data from localStorage on component mount
-  useEffect(() => {
-    const savedEvents = localStorage.getItem('events');
-    const savedParticipants = localStorage.getItem('participants');
-    const savedVotes = localStorage.getItem('votes');
-
-    if (savedEvents) {
-      setEvents(JSON.parse(savedEvents));
+  const [loadingEvents, setLoadingEvents] = useState(true);
+  const [currentUser, setCurrentUser] = useState(() => {
+    const saved = localStorage.getItem('currentUser');
+    try {
+      return saved ? JSON.parse(saved) : null;
+    } catch (e) {
+      return null;
     }
-    if (savedParticipants) {
-      setParticipants(JSON.parse(savedParticipants));
-    }
-    if (savedVotes) {
-      setVotes(JSON.parse(savedVotes));
+  });
+  const [unreadNotifications, setUnreadNotifications] = useState(0);
+
+  // Fetch events from backend API
+  const refreshEvents = useCallback(async () => {
+    try {
+      setLoadingEvents(true);
+      const data = await api.events.getAll();
+      setEvents(data || []);
+    } catch (err) {
+      console.error('Error fetching events:', err);
+    } finally {
+      setLoadingEvents(false);
     }
   }, []);
 
-  // Save to localStorage whenever data changes
-  useEffect(() => {
-    localStorage.setItem('events', JSON.stringify(events));
-  }, [events]);
-
-  useEffect(() => {
-    localStorage.setItem('participants', JSON.stringify(participants));
-  }, [participants]);
-
-  useEffect(() => {
-    localStorage.setItem('votes', JSON.stringify(votes));
-  }, [votes]);
-
-  const addEvent = (eventData) => {
-    const newEvent = {
-      ...eventData,
-      id: Date.now().toString(),
-      createdAt: new Date().toISOString()
-    };
-    setEvents(prev => [...prev, newEvent]);
-    return newEvent;
-  };
-
-  const registerParticipant = async (participantData) => {
-    // Try to post to backend to persist in SQL
+  // Fetch notifications
+  const refreshNotifications = useCallback(async () => {
+    if (!currentUser?.id) return;
     try {
-      const rawCurrentUser = localStorage.getItem('currentUser');
-      const currentUser = rawCurrentUser ? JSON.parse(rawCurrentUser) : null;
-
-      const payload = {
-        user_id: currentUser?.id ?? null,
-        event_id: participantData.eventId,
-        team_name: participantData.teamName,
-        team_picture: participantData.teamPictureUrl || null
-      };
-
-      const storedUserEventId = sessionStorage.getItem('userEventId');
-      if (storedUserEventId) {
-        // update existing record
-        await fetch(`http://localhost:3000/user_events/${storedUserEventId}`, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ team_name: payload.team_name, team_picture: payload.team_picture })
-        });
-      } else {
-        // create new registration row
-        await fetch('http://localhost:3000/user_events', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload)
-        });
-      }
-
-      // Keep local state in sync (optimistic)
-      const newParticipant = {
-        ...participantData,
-        id: Date.now().toString(),
-        registeredAt: new Date().toISOString()
-      };
-      setParticipants(prev => [...prev, newParticipant]);
-      return newParticipant;
+      const data = await api.notifications.getAll(currentUser.id);
+      setUnreadNotifications(data?.unreadCount || 0);
     } catch (err) {
-      console.error('Failed to register participant to backend', err);
-      throw err;
+      // ignore
+    }
+  }, [currentUser?.id]);
+
+  useEffect(() => {
+    refreshEvents();
+  }, [refreshEvents]);
+
+  useEffect(() => {
+    if (currentUser?.id) {
+      refreshNotifications();
+      const interval = setInterval(refreshNotifications, 30000); // poll every 30s
+      return () => clearInterval(interval);
+    }
+  }, [currentUser?.id, refreshNotifications]);
+
+  // Auth helper methods
+  const loginUser = (user, token) => {
+    setCurrentUser(user);
+    localStorage.setItem('currentUser', JSON.stringify(user));
+    if (token) {
+      localStorage.setItem('token', token);
     }
   };
 
-  const castVote = (voteData) => {
-    const newVote = {
-      ...voteData,
-      id: Date.now().toString(),
-      votedAt: new Date().toISOString()
-    };
-    setVotes(prev => [...prev, newVote]);
-    return newVote;
+  const logoutUser = () => {
+    setCurrentUser(null);
+    localStorage.removeItem('currentUser');
+    localStorage.removeItem('token');
+    sessionStorage.removeItem('audienceData');
+    sessionStorage.removeItem('selectedEventId');
+    sessionStorage.removeItem('userEventId');
   };
 
-  const getParticipantsByEvent = (eventId) => {
-    return participants.filter(participant => participant.eventId === eventId);
-  };
-
-  const getVotesByEvent = (eventId) => {
-    return votes.filter(vote => vote.eventId === eventId);
-  };
-
-  const getResults = (eventId) => {
-    const eventVotes = getVotesByEvent(eventId);
-    const eventParticipants = getParticipantsByEvent(eventId);
-    
-    const voteCounts = eventVotes.reduce((acc, vote) => {
-      acc[vote.participantId] = (acc[vote.participantId] || 0) + 1;
-      return acc;
-    }, {});
-
-    const results = eventParticipants.map(participant => ({
-      ...participant,
-      votes: voteCounts[participant.id] || 0
-    }));
-
-    return results.sort((a, b) => b.votes - a.votes);
-  };
-
+  // Safe event status check
   const isEventOngoing = (event) => {
+    if (!event) return false;
+    if (event.computedStatus === 'Voting Open') return true;
+    if (event.computedStatus === 'Ongoing') return true;
+    
+    // Fallback date check
     const now = new Date();
-    const startDate = new Date(event.startDateTime);
-    const endDate = new Date(event.endDateTime);
-    return now >= startDate && now <= endDate;
+    const start = new Date(event.startDateTime || event.start_date_time);
+    const end = new Date(event.endDateTime || event.end_date_time);
+    return now >= start && now <= end;
   };
 
   const value = {
     events,
     setEvents,
-    participants,
-    votes,
-    addEvent,
-    registerParticipant,
-    castVote,
-    getParticipantsByEvent,
-    getVotesByEvent,
-    getResults,
-    isEventOngoing
+    loadingEvents,
+    refreshEvents,
+    currentUser,
+    setCurrentUser,
+    loginUser,
+    logoutUser,
+    unreadNotifications,
+    refreshNotifications,
+    isEventOngoing,
+    isAdmin: currentUser?.role === 'Admin',
+    isOrganizer: currentUser?.role === 'Organizer' || currentUser?.role === 'Admin'
   };
 
   return (
@@ -161,3 +113,5 @@ export const EventProvider = ({ children }) => {
     </EventContext.Provider>
   );
 };
+
+export default EventContext;

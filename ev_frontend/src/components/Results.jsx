@@ -1,321 +1,467 @@
-import React, { useState, useEffect } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import React, { useState, useEffect, useMemo } from 'react';
+import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useEvent } from '../context/EventContext';
+import { useToast } from '../context/ToastContext';
+import api, { API_BASE_URL } from '../services/api';
+import Navbar from './common/Navbar';
+import Footer from './common/Footer';
+import EmptyState from './common/EmptyState';
 import {
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
+  PieChart, Pie, Cell, Legend
 } from 'recharts';
-import { ArrowLeft, Trophy, Medal, Award, RefreshCw } from 'lucide-react';
+import {
+  Trophy, Medal, Award, RefreshCw, Download, ArrowLeft,
+  Sparkles, CheckCircle2, ChevronRight, Users, Vote
+} from 'lucide-react';
+
+const COLORS = ['#6366f1', '#ec4899', '#10b981', '#f59e0b', '#8b5cf6', '#06b6d4', '#f97316'];
 
 const Results = () => {
-  const { eventId } = useParams();
-  const { events = [] } = useEvent();
-  const [event, setEvent] = useState(null);
-  const [results, setResults] = useState([]);
-  const [filteredResults, setFilteredResults] = useState([]);
-  const [categories, setCategories] = useState([]);
-  const [selectedCategory, setSelectedCategory] = useState('');
-  const [refreshing, setRefreshing] = useState(false);
+  const { eventId: paramEventId } = useParams();
   const navigate = useNavigate();
+  const { events } = useEvent();
+  const { showToast } = useToast();
 
-  const loadResults = async () => {
-    // Load event data as before
-    let eventData = null;
-    if (eventId && events.length > 0) {
-      eventData = events.find(e => e.id === eventId || e.id.toString() === eventId);
+  const [activeEventId, setActiveEventId] = useState(paramEventId || '');
+  const [eventData, setEventData] = useState(null);
+  const [results, setResults] = useState([]);
+  const [totalVotes, setTotalVotes] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [activeCategory, setActiveCategory] = useState('All');
+
+  // If no eventId in param, default to first event or active event
+  useEffect(() => {
+    if (!paramEventId && events.length > 0) {
+      const liveEvent = events.find((e) => e.computedStatus === 'Voting Open') || events[0];
+      setActiveEventId(String(liveEvent.id));
+    } else if (paramEventId) {
+      setActiveEventId(String(paramEventId));
     }
+  }, [paramEventId, events]);
 
-    if (!eventData) {
-      eventData = {
-        id: eventId || '0',
-        eventName: 'Unknown Event',
-        eventType: 'N/A',
-        institutionName: 'No Institution',
-      };
-    }
-    setEvent(eventData);
-
-    // Load results from backend
-    let resultsData = [];
+  const loadResults = async (eId, isManualRefresh = false) => {
+    if (!eId) return;
     try {
-      const resp = await fetch(`http://localhost:3000/votes/${eventId}`);
-      const respData = await resp.json();
-      // Normalize backend rows to a consistent shape used by the UI
-      resultsData = (respData || []).map((r) => ({
-        id: r.participant_id ?? r.user_id ?? r.id,
-        teamName: r.teamName ?? r.team_name ?? null,
-        participantName: r.participantName ?? r.username ?? r.name ?? null,
-        participantEmail: r.participantEmail ?? r.email ?? null,
-        teamPictureUrl: r.teamPictureUrl ?? r.team_picture ?? null,
-        votes: Number(r.votes || 0),
-        performanceCategory: r.performanceCategory ?? r.performance_category ?? null,
-        institution: r.institution ?? r.institutionName ?? null
-      }));
-    } catch (e) {
-      resultsData = [];
-    }
-    if (!resultsData || resultsData.length === 0) {
-      resultsData = [
-        {
-          id: '0',
-          teamName: 'No Participants Yet',
-          institution: 'N/A',
-          performanceCategory: 'N/A',
-          teamPictureUrl: '',
-          votes: 0,
-        },
-      ];
-    }
+      if (isManualRefresh) setRefreshing(true);
+      else setLoading(true);
 
-    setResults(resultsData);
-    setFilteredResults(resultsData);
+      const data = await api.votes.getResults(eId);
+      setEventData(data.event || null);
+      setTotalVotes(data.totalVotes || 0);
+      setResults(data.results || []);
 
-    // Set up unique categories, if you have performanceCategory
-    const uniqueCategories = Array.from(new Set(resultsData.map(r => r.performanceCategory).filter(Boolean)));
-    setCategories(uniqueCategories);
-    setSelectedCategory('');
-  };
-
-  useEffect(() => {
-    loadResults();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [eventId]);
-
-  useEffect(() => {
-    if (!selectedCategory) setFilteredResults(results);
-    else setFilteredResults(results.filter(r => r.performanceCategory === selectedCategory));
-  }, [selectedCategory, results]);
-
-  const handleRefresh = () => {
-    setRefreshing(true);
-    setTimeout(() => {
-      loadResults();
+      if (isManualRefresh) {
+        showToast('Results successfully updated from database', 'info');
+      }
+    } catch (err) {
+      console.error('loadResults error:', err);
+      showToast('Failed to load voting results', 'error');
+    } finally {
+      setLoading(false);
       setRefreshing(false);
-    }, 1000);
-  };
-
-  // compute totals and percentages for UI
-  const totalVotes = filteredResults.reduce((s, r) => s + (Number(r.votes) || 0), 0);
-  const enrichedResults = filteredResults.map(r => ({
-    ...r,
-    percent: totalVotes > 0 ? Math.round(((Number(r.votes) || 0) / totalVotes) * 100) : 0,
-  }));
-
-  const chartData = enrichedResults.map(result => {
-    const display = result.teamName || result.participantName || `Participant ${result.id}`;
-    return {
-      name: display.length > 15 ? display.substring(0, 15) + '...' : display,
-      votes: result.votes || 0,
-    };
-  });
-
-  const winners = enrichedResults.slice(0, 3);
-
-  const getRankIcon = (rank) => {
-    switch (rank) {
-      case 0: return <Trophy size={32} className="text-yellow-500" />;
-      case 1: return <Medal size={32} className="text-gray-500" />;
-      case 2: return <Award size={32} className="text-orange-500" />;
-      default: return null;
     }
   };
 
-  const getRankClass = (rank) => {
-    switch (rank) {
-      case 0: return 'border-yellow-400 bg-gradient-to-br from-yellow-50 to-yellow-100';
-      case 1: return 'border-gray-400 bg-gradient-to-br from-gray-50 to-gray-100';
-      case 2: return 'border-orange-400 bg-gradient-to-br from-orange-50 to-orange-100';
-      default: return '';
+  useEffect(() => {
+    if (activeEventId) {
+      loadResults(activeEventId);
     }
+  }, [activeEventId]);
+
+  // Categories in current results
+  const categories = useMemo(() => {
+    const set = new Set(results.map((r) => r.performanceCategory).filter(Boolean));
+    return ['All', ...Array.from(set)];
+  }, [results]);
+
+  // Filtered by category
+  const filteredResults = useMemo(() => {
+    if (activeCategory === 'All') return results;
+    return results.filter((r) => r.performanceCategory === activeCategory);
+  }, [results, activeCategory]);
+
+  // Chart data
+  const chartData = useMemo(() => {
+    return filteredResults.map((r) => ({
+      name: r.teamName?.length > 14 ? r.teamName.substring(0, 14) + '...' : r.teamName,
+      fullName: r.teamName,
+      votes: r.votes,
+      percent: r.percent,
+    }));
+  }, [filteredResults]);
+
+  const pieData = useMemo(() => {
+    return filteredResults.filter((r) => r.votes > 0).map((r) => ({
+      name: r.teamName,
+      value: r.votes,
+    }));
+  }, [filteredResults]);
+
+  const topThree = filteredResults.slice(0, 3);
+  const leadingCandidate = topThree.length > 0 && topThree[0].votes > 0 ? topThree[0] : null;
+
+  const handleExportCsv = () => {
+    if (!activeEventId) return;
+    window.open(`${API_BASE_URL}/admin/export/results/${activeEventId}`, '_blank');
+    showToast('Exporting results CSV...', 'success');
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 py-10">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+    <div className="min-h-screen flex flex-col bg-slate-50 dark:bg-[#090d16] text-slate-900 dark:text-slate-100 transition-colors">
+      <Navbar />
 
-        {/* Header */}
-        <header className="flex flex-wrap items-center justify-between mb-8 gap-6">
-          <button
-            onClick={() => navigate('/home')}
-            className="flex items-center gap-2 text-gray-600 hover:text-blue-600 font-medium transition-colors"
-          >
-            <ArrowLeft size={20} />
-            Back to Home
-          </button>
-
-          <div className="text-center flex-1">
-            <h1 className="text-4xl font-bold text-gray-900 mb-2">Results</h1>
-            <h2 className="text-2xl font-bold bg-gradient-to-r from-blue-600 to-blue-800 bg-clip-text text-transparent mb-2">
-              {event?.eventName || 'Event Not Available'}
-            </h2>
-            <p className="text-gray-600">
-              {event?.eventType || 'N/A'} • {event?.institutionName || 'N/A'}
-            </p>
+      <main className="flex-1 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10 w-full">
+        
+        {/* Header Controls: Event Selector & Actions */}
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
+          <div>
+            <Link
+              to="/home"
+              className="inline-flex items-center gap-1.5 text-xs font-bold text-slate-500 hover:text-indigo-600 mb-2 transition-colors"
+            >
+              <ArrowLeft className="w-4 h-4" /> Back to Events
+            </Link>
+            <h1 className="text-3xl sm:text-4xl font-extrabold tracking-tight flex items-center gap-3">
+              <Trophy className="w-8 h-8 text-amber-500" />
+              Live Results & Leaderboard
+            </h1>
           </div>
 
-          <button
-            className={`flex items-center gap-2 border-2 border-blue-600 text-blue-600 hover:bg-blue-50 px-6 py-3 rounded-lg font-semibold transition-all ${refreshing ? 'animate-pulse' : ''}`}
-            onClick={handleRefresh}
-            disabled={refreshing}
-          >
-            <RefreshCw size={20} className={refreshing ? 'animate-spin' : ''} />
-            {refreshing ? 'Refreshing...' : 'Refresh'}
-          </button>
-        </header>
+          <div className="flex flex-wrap items-center gap-3">
+            {/* Event Selector */}
+            <select
+              value={activeEventId}
+              onChange={(e) => {
+                setActiveEventId(e.target.value);
+                navigate(`/results/${e.target.value}`);
+              }}
+              className="px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-xs font-bold text-slate-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            >
+              {events.map((ev) => (
+                <option key={ev.id} value={ev.id}>
+                  {ev.eventName}
+                </option>
+              ))}
+            </select>
 
-        {/* Category Filter Form */}
-        <div className="mb-10 max-w-3xl mx-auto">
-          <label className="block mb-2 text-lg font-semibold text-gray-700">Filter by Category:</label>
-          <select
-            className="w-full border-2 border-gray-300 rounded-lg px-4 py-3 text-gray-900"
-            value={selectedCategory}
-            onChange={(e) => setSelectedCategory(e.target.value)}
-          >
-            <option value="">All Categories</option>
-            {categories.map((cat, idx) => (
-              <option key={idx} value={cat}>{cat}</option>
-            ))}
-          </select>
+            {/* Refresh Button */}
+            <button
+              onClick={() => loadResults(activeEventId, true)}
+              disabled={refreshing}
+              className="p-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 transition-colors"
+              title="Refresh Live Tallies"
+            >
+              <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin text-indigo-500' : ''}`} />
+            </button>
+
+            {/* Export CSV Button */}
+            <button
+              onClick={handleExportCsv}
+              className="px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800 text-xs font-bold text-slate-700 dark:text-slate-200 flex items-center gap-2 transition-colors"
+            >
+              <Download className="w-4 h-4 text-emerald-500" /> Export CSV
+            </button>
+          </div>
         </div>
 
-        {/* Top 3 Winners */}
-        <div className="mb-16">
-          <h2 className="text-3xl font-bold text-gray-900 text-center mb-8">Top 3 Winners</h2>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 max-w-5xl mx-auto">
-            {winners.map((winner, index) => (
-              <div
-                key={winner.id || index}
-                className={`bg-white rounded-2xl shadow-xl hover:shadow-2xl transition-all duration-300 hover:-translate-y-2 p-8 text-center border-4 ${getRankClass(index)}`}
-              >
-                <div className="flex items-center justify-center gap-2 mb-6">
-                  {getRankIcon(index)}
-                  <span className="text-2xl font-bold text-gray-900">#{index + 1}</span>
-                </div>
-
-                <div className="w-24 h-24 mx-auto mb-6 rounded-full overflow-hidden border-4 border-gray-200">
-                  {winner.teamPictureUrl ? (
-                    <img src={winner.teamPictureUrl} alt={winner.teamName} className="w-full h-full object-cover" />
-                  ) : (
-                    <div className="w-full h-full bg-gray-100 flex items-center justify-center">
-                      <Trophy size={32} className="text-gray-400" />
-                    </div>
-                  )}
-                </div>
-
-                <h3 className="text-xl font-bold text-gray-900 mb-2">{winner.teamName || winner.participantName}</h3>
-                {winner.participantEmail ? (
-                  <p className="text-gray-600 mb-3"><a href={`mailto:${winner.participantEmail}`} className="underline text-blue-600">{winner.participantEmail}</a></p>
-                ) : (
-                  <p className="text-gray-600 mb-3">{winner.institution}</p>
-                )}
-                <span className="inline-block bg-gray-100 text-gray-700 px-3 py-1 rounded-full text-sm font-medium mb-4">
-                  {winner.performanceCategory}
-                </span>
-                <div className="flex items-center flex-col gap-2">
-                  <div className="flex items-center gap-2">
-                    <span className="text-3xl font-bold text-gray-900">{winner.votes}</span>
-                    <span className="text-sm text-gray-600 font-medium">votes</span>
-                  </div>
-                  <div className="w-full bg-gray-200 rounded-full h-3 overflow-hidden mt-2">
-                    <div className="h-3 bg-blue-600" style={{ width: `${winner.percent}%` }} />
-                  </div>
-                  <div className="text-xs text-gray-600 mt-1">{winner.percent}% of total votes</div>
-                </div>
+        {/* 1. LEADING WINNER BANNER */}
+        {leadingCandidate && (
+          <div className="glass-card rounded-3xl p-6 sm:p-8 border border-amber-500/30 bg-gradient-to-r from-amber-500/10 via-yellow-500/10 to-orange-500/10 mb-10 flex flex-col md:flex-row md:items-center justify-between gap-6">
+            <div className="flex items-center gap-5">
+              <div className="w-16 h-16 rounded-2xl gradient-primary flex items-center justify-center text-white shadow-xl shadow-amber-500/20 shrink-0">
+                <Trophy className="w-9 h-9 text-amber-300 animate-bounce" />
               </div>
-            ))}
-          </div>
-        </div>
+              <div>
+                <span className="text-[11px] font-extrabold uppercase tracking-wider text-amber-600 dark:text-amber-400">
+                  Current Leader / Projected Winner
+                </span>
+                <h2 className="text-2xl sm:text-3xl font-black text-slate-900 dark:text-white">
+                  {leadingCandidate.teamName}
+                </h2>
+                <p className="text-xs text-slate-600 dark:text-slate-400 mt-0.5 font-medium">
+                  Lead: {leadingCandidate.participantName || leadingCandidate.teamLeader} • {leadingCandidate.institution || 'Team'}
+                </p>
+              </div>
+            </div>
 
-        {/* Chart */}
-        <div className="mb-16">
-          <div className="bg-white rounded-2xl shadow-lg p-8">
-            <h2 className="text-3xl font-bold text-gray-900 text-center mb-8">Voting Results Chart</h2>
-            <div className="bg-gray-50 p-6 rounded-xl">
-              <ResponsiveContainer width="100%" height={400}>
-                <BarChart data={chartData} margin={{ top: 20, right: 30, left: 20, bottom: 60 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                  <XAxis
-                    dataKey="name"
-                    stroke="#6b7280"
-                    angle={-45}
-                    textAnchor="end"
-                    height={80}
-                    interval={0}
-                    fontSize={12}
-                  />
-                  <YAxis stroke="#6b7280" />
+            <div className="flex items-center gap-6 bg-white/60 dark:bg-slate-900/60 backdrop-blur-md px-6 py-4 rounded-2xl border border-amber-500/20">
+              <div className="text-center">
+                <span className="text-2xl font-black text-indigo-600 dark:text-indigo-400">
+                  {leadingCandidate.votes}
+                </span>
+                <p className="text-[10px] uppercase font-bold text-slate-400">Ballots</p>
+              </div>
+              <div className="h-8 w-px bg-slate-200 dark:bg-slate-800" />
+              <div className="text-center">
+                <span className="text-2xl font-black text-emerald-600 dark:text-emerald-400">
+                  {leadingCandidate.percent}%
+                </span>
+                <p className="text-[10px] uppercase font-bold text-slate-400">Vote Share</p>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* 2. PODIUM (Top 3 Candidates) */}
+        {topThree.length >= 2 && (
+          <div className="mb-12">
+            <h3 className="text-center text-xs font-extrabold uppercase tracking-widest text-slate-400 mb-6">
+              Honor Podium
+            </h3>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 max-w-3xl mx-auto items-end">
+              
+              {/* 2nd Place */}
+              {topThree[1] && (
+                <div className="glass-card rounded-2xl p-5 text-center order-2 sm:order-1 border border-slate-300 dark:border-slate-700 hover-lift">
+                  <Medal className="w-10 h-10 text-slate-400 mx-auto mb-2" />
+                  <span className="text-xs font-bold text-slate-400 block mb-1">2nd Place</span>
+                  <h4 className="text-base font-bold text-slate-900 dark:text-white truncate">
+                    {topThree[1].teamName}
+                  </h4>
+                  <p className="text-xs text-indigo-500 font-bold mt-1">
+                    {topThree[1].votes} Votes ({topThree[1].percent}%)
+                  </p>
+                </div>
+              )}
+
+              {/* 1st Place (Gold Center) */}
+              {topThree[0] && (
+                <div className="glass-card rounded-3xl p-6 text-center order-1 sm:order-2 border-2 border-amber-400 bg-amber-50/40 dark:bg-amber-950/20 shadow-xl shadow-amber-500/10 hover-lift -translate-y-2">
+                  <Trophy className="w-12 h-12 text-yellow-500 mx-auto mb-2" />
+                  <span className="text-xs font-black uppercase text-amber-600 dark:text-amber-400 block mb-1">
+                    1st Place (Champion)
+                  </span>
+                  <h4 className="text-lg font-black text-slate-900 dark:text-white truncate">
+                    {topThree[0].teamName}
+                  </h4>
+                  <p className="text-sm text-emerald-600 dark:text-emerald-400 font-black mt-1">
+                    {topThree[0].votes} Votes ({topThree[0].percent}%)
+                  </p>
+                </div>
+              )}
+
+              {/* 3rd Place */}
+              {topThree[2] && (
+                <div className="glass-card rounded-2xl p-5 text-center order-3 sm:order-3 border border-orange-300 dark:border-orange-800 hover-lift">
+                  <Award className="w-10 h-10 text-orange-400 mx-auto mb-2" />
+                  <span className="text-xs font-bold text-orange-500 block mb-1">3rd Place</span>
+                  <h4 className="text-base font-bold text-slate-900 dark:text-white truncate">
+                    {topThree[2].teamName}
+                  </h4>
+                  <p className="text-xs text-indigo-500 font-bold mt-1">
+                    {topThree[2].votes} Votes ({topThree[2].percent}%)
+                  </p>
+                </div>
+              )}
+
+            </div>
+          </div>
+        )}
+
+        {/* 3. INTERACTIVE VISUALIZATION CHARTS */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 mb-12">
+          
+          {/* Bar Chart: Vote Count Comparison */}
+          <div className="lg:col-span-2 glass-card rounded-3xl p-6 border border-slate-200 dark:border-slate-800">
+            <h3 className="text-base font-extrabold text-slate-900 dark:text-white mb-6 flex items-center justify-between">
+              <span>Vote Tally Distribution</span>
+              <span className="text-xs font-semibold text-slate-400">Total: {totalVotes} Ballots</span>
+            </h3>
+
+            <div className="h-72 w-full">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={chartData} margin={{ top: 10, right: 10, left: -20, bottom: 20 }}>
+                  <CartesianGrid strokeDasharray="3 3" opacity={0.15} />
+                  <XAxis dataKey="name" tick={{ fontSize: 11 }} angle={-15} textAnchor="end" />
+                  <YAxis allowDecimals={false} tick={{ fontSize: 11 }} />
                   <Tooltip
                     contentStyle={{
-                      backgroundColor: 'white',
-                      border: '1px solid #e5e7eb',
-                      borderRadius: '8px',
-                      boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)',
+                      backgroundColor: '#0f172a',
+                      borderRadius: '12px',
+                      border: '1px solid #334155',
+                      color: '#fff',
+                      fontSize: '12px',
                     }}
                   />
-                  <Bar dataKey="votes" fill="#3b82f6" radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="votes" fill="#6366f1" radius={[8, 8, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
             </div>
           </div>
+
+          {/* Donut Chart: Vote Share Percentage */}
+          <div className="glass-card rounded-3xl p-6 border border-slate-200 dark:border-slate-800 flex flex-col justify-between">
+            <h3 className="text-base font-extrabold text-slate-900 dark:text-white mb-2">
+              Ballot Share %
+            </h3>
+
+            <div className="h-60 w-full">
+              {pieData.length === 0 ? (
+                <div className="h-full flex items-center justify-center text-xs text-slate-400">
+                  No votes recorded yet
+                </div>
+              ) : (
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie
+                      data={pieData}
+                      dataKey="value"
+                      nameKey="name"
+                      cx="50%"
+                      cy="50%"
+                      innerRadius={50}
+                      outerRadius={80}
+                      paddingAngle={4}
+                    >
+                      {pieData.map((_, index) => (
+                        <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                      ))}
+                    </Pie>
+                    <Tooltip
+                      contentStyle={{
+                        backgroundColor: '#0f172a',
+                        borderRadius: '12px',
+                        border: '1px solid #334155',
+                        color: '#fff',
+                        fontSize: '12px',
+                      }}
+                    />
+                  </PieChart>
+                </ResponsiveContainer>
+              )}
+            </div>
+
+            <p className="text-[11px] text-center text-slate-400">
+              Percentage of total verified ballots cast
+            </p>
+          </div>
+
         </div>
 
-        {/* Leaderboard */}
-        <div>
-          <h2 className="text-3xl font-bold text-gray-900 text-center mb-8">Complete Leaderboard</h2>
-          <div className="space-y-4">
-            {filteredResults.map((participant, index) => (
-              <div
-                key={participant.id || index}
-                className={`bg-white rounded-2xl shadow-lg hover:shadow-xl transition-all duration-300 hover:translate-x-2 p-6 flex items-center gap-6 border-2 ${index < 3 ? getRankClass(index) : 'border-transparent'}`}
+        {/* 4. COMPLETE RANKING LEADERBOARD TABLE */}
+        <div className="glass-card rounded-3xl p-6 sm:p-8 border border-slate-200 dark:border-slate-800">
+          <div className="flex items-center justify-between mb-6">
+            <div>
+              <h3 className="text-lg font-extrabold text-slate-900 dark:text-white">
+                Official Leaderboard Standings
+              </h3>
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                Full ranked list of all candidates and vote progress
+              </p>
+            </div>
+
+            {/* Category Filter */}
+            {categories.length > 1 && (
+              <select
+                value={activeCategory}
+                onChange={(e) => setActiveCategory(e.target.value)}
+                className="px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-xs font-bold"
               >
-                <div className="flex items-center gap-3 min-w-[80px]">
-                  <span className="text-xl font-bold text-gray-900">#{index + 1}</span>
-                  {index < 3 && getRankIcon(index)}
-                </div>
+                {categories.map((c) => (
+                  <option key={c} value={c}>{c}</option>
+                ))}
+              </select>
+            )}
+          </div>
 
-                <div className="w-16 h-16 rounded-lg overflow-hidden bg-gray-100 flex-shrink-0">
-                  {participant.teamPictureUrl ? (
-                    <img src={participant.teamPictureUrl} alt={participant.teamName} className="w-full h-full object-cover" />
-                  ) : (
-                    <div className="w-full h-full flex items-center justify-center">
-                      <Trophy size={20} className="text-gray-400" />
-                    </div>
-                  )}
-                </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-sm">
+              <thead>
+                <tr className="border-b border-slate-200 dark:border-slate-800 text-xs text-slate-400 uppercase">
+                  <th className="py-3 px-4">Rank</th>
+                  <th className="py-3 px-4">Candidate / Team</th>
+                  <th className="py-3 px-4">Category</th>
+                  <th className="py-3 px-4">Institution</th>
+                  <th className="py-3 px-4">Ballots</th>
+                  <th className="py-3 px-4">Share</th>
+                  <th className="py-3 px-4 text-right">Audit</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60">
+                {filteredResults.map((r) => (
+                  <tr key={r.id || r.participant_id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors">
+                    <td className="py-3.5 px-4 font-black">
+                      {r.rank === 1 ? (
+                        <span className="w-6 h-6 rounded-full bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300 inline-flex items-center justify-center text-xs">
+                          1
+                        </span>
+                      ) : r.rank === 2 ? (
+                        <span className="w-6 h-6 rounded-full bg-slate-200 text-slate-800 dark:bg-slate-800 dark:text-slate-300 inline-flex items-center justify-center text-xs">
+                          2
+                        </span>
+                      ) : r.rank === 3 ? (
+                        <span className="w-6 h-6 rounded-full bg-orange-100 text-orange-800 dark:bg-orange-950 dark:text-orange-300 inline-flex items-center justify-center text-xs">
+                          3
+                        </span>
+                      ) : (
+                        <span className="text-slate-400 font-mono text-xs">{r.rank}</span>
+                      )}
+                    </td>
 
-                <div className="flex-1 min-w-0">
-                  <h3 className="text-lg font-semibold text-gray-900 truncate">{participant.teamName || participant.participantName}</h3>
-                  {participant.participantEmail ? (
-                    <p className="text-gray-600 truncate"><a href={`mailto:${participant.participantEmail}`} className="underline text-blue-600">{participant.participantEmail}</a></p>
-                  ) : (
-                    <p className="text-gray-600 truncate">{participant.institution}</p>
-                  )}
-                  <span className="inline-block bg-gray-100 text-gray-700 px-2 py-1 rounded-full text-xs font-medium mt-1">
-                    {participant.performanceCategory}
-                  </span>
-                  <div className="w-full bg-gray-200 rounded-full h-2 overflow-hidden mt-2">
-                    <div className="h-2 bg-blue-500" style={{ width: `${participant.percent || 0}%` }} />
-                  </div>
-                </div>
+                    <td className="py-3.5 px-4">
+                      <div className="flex items-center gap-3">
+                        <div className="w-9 h-9 rounded-xl overflow-hidden bg-indigo-500/20 flex items-center justify-center font-bold text-indigo-600 dark:text-indigo-400 shrink-0">
+                          {r.teamPictureUrl ? (
+                            <img src={r.teamPictureUrl} alt={r.teamName} className="w-full h-full object-cover" />
+                          ) : (
+                            <span>{(r.teamName || 'T')[0]}</span>
+                          )}
+                        </div>
+                        <div>
+                          <p className="font-bold text-slate-900 dark:text-white">{r.teamName}</p>
+                          <p className="text-xs text-slate-400">Lead: {r.participantName || r.teamLeader || 'Lead'}</p>
+                        </div>
+                      </div>
+                    </td>
 
-                <div className="text-center min-w-[80px]">
-                  <span className="text-2xl font-bold text-gray-900">{participant.votes}</span>
-                  <p className="text-sm text-gray-600">votes</p>
-                  <p className="text-xs text-gray-500">{participant.percent || 0}%</p>
-                </div>
-                <div className="ml-4">
-                  <a
-                    href={`/results/${event?.id}/participant/${participant.id}`}
-                    className="text-sm text-blue-600 underline"
-                  >
-                    View vote details
-                  </a>
-                </div>
-              </div>
-            ))}
+                    <td className="py-3.5 px-4">
+                      <span className="text-xs font-semibold px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
+                        {r.performanceCategory || 'General'}
+                      </span>
+                    </td>
+
+                    <td className="py-3.5 px-4 text-xs text-slate-500">
+                      {r.institution || 'Affiliate'}
+                    </td>
+
+                    <td className="py-3.5 px-4 font-bold text-slate-900 dark:text-white">
+                      {r.votes}
+                    </td>
+
+                    <td className="py-3.5 px-4">
+                      <div className="w-28 space-y-1">
+                        <div className="flex justify-between text-[10px] font-bold text-slate-500">
+                          <span>{r.percent}%</span>
+                        </div>
+                        <div className="w-full h-2 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
+                          <div
+                            className="h-full gradient-primary rounded-full transition-all duration-500"
+                            style={{ width: `${r.percent}%` }}
+                          />
+                        </div>
+                      </div>
+                    </td>
+
+                    <td className="py-3.5 px-4 text-right">
+                      <Link
+                        to={`/results/${activeEventId}/participant/${r.id || r.participant_id}`}
+                        className="text-xs font-bold text-indigo-600 dark:text-indigo-400 hover:underline inline-flex items-center gap-1"
+                      >
+                        Audit <ChevronRight className="w-3.5 h-3.5" />
+                      </Link>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         </div>
 
-      </div>
+      </main>
+
+      <Footer />
     </div>
   );
 };
