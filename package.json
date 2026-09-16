@@ -1,0 +1,18 @@
+{
+  "name": "event-voting-management-system",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Event Organization & Voting Management System",
+  "scripts": {
+    "dev": "npm run dev --prefix ev_frontend",
+    "dev:frontend": "npm run dev --prefix ev_frontend",
+    "dev:backend": "npm start --prefix ev_backend",
+    "start": "npm start --prefix ev_backend",
+    "build": "npm run build --prefix ev_frontend",
+    "seed": "npm run seed --prefix ev_backend",
+    "install:all": "npm install --prefix ev_backend && npm install --prefix ev_frontend"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC"
+}
