@@ -10,6 +10,7 @@
     "start": "npm start --prefix ev_backend",
     "build": "npm run build --prefix ev_frontend",
     "seed": "npm run seed --prefix ev_backend",
+    "test:vote": "node scripts/testVote.js",
     "install:all": "npm install --prefix ev_backend && npm install --prefix ev_frontend"
   },
   "keywords": [],
